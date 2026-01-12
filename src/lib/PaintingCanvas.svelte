@@ -60,13 +60,16 @@
     let resizingBrushWithGesture = $state(false)
     let [brushCursorResizeGestureStartPageX, brushCursorResizeGestureStartBrushSize] = [NaN, NaN]
 
+    // hold space for temp hand tool
+    let spaceBarHandActive = $state(false)
+
     // Brush cursor svg vars
     let brushCursorSvgSize = $derived(Math.round(strokeWidth / 2) * 2) // rounding prevents alignment issues with the native cursor
     let brushCursorSvgStrokeColor = '#AAA'
     let brushCursorSvg = $derived(`<svg width="${brushCursorSvgSize}" height="${brushCursorSvgSize}" xmlns="http://www.w3.org/2000/svg"><circle cx="${brushCursorSvgSize / 2}" cy="${brushCursorSvgSize / 2}" r="${brushCursorSvgSize / 2 - brushCursorSvgStrokeWidth}" fill="#0000" stroke-width="${brushCursorSvgStrokeWidth}" stroke="${brushCursorSvgStrokeColor}" /></svg>`)
     let brushCursorDataUrl = $derived(`data:image/svg+xml;base64,${encodeURIComponent(btoa(brushCursorSvg))}`)
     let brushCursorStyle = $derived(`url("${brushCursorDataUrl}") ${brushCursorSvgSize / 2} ${brushCursorSvgSize / 2}, default`)
-    let fakeBrushCursorVisible = $derived(activeTool == 'brush' && (resizingBrushWithGesture || strokeWidth > maxRealCursorSize))
+    let fakeBrushCursorVisible = $derived(activeTool == 'brush' && !spaceBarHandActive && (resizingBrushWithGesture || strokeWidth > maxRealCursorSize))
 
     // TODO: convert these to object
     // Hand tool dragging vars
@@ -75,9 +78,6 @@
     let panning = $state(false)
     let [zoomGestureStartPointerPos, zoomGestureStartScale, zoomGestureStartTranslation]: [[number, number], number, [number, number]] = [[NaN, NaN], NaN, [NaN, NaN]]
     let zoomGestureActive = false
-
-    // hold space for temp hand tool
-    let spaceBarHandActive = $state(false)
 
     // when holding ctrl/cmd or alt and having the hand tool active, you can click to zoom in/out, the cursor should reflect that
     let handZoomCursorType: 'zoom-in' | 'zoom-out' | 'none' = $state('none')
