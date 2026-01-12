@@ -153,12 +153,24 @@
             canvasStrokes.push({ points: new Float32Array(currentStrokePoints), styling: { brushSize, color: rgbToNumber(...paintColor) } })
             currentStrokePoints.length = 0
         })
+        function undo() {
+            historyStep = Math.min(canvasStrokes.length, historyStep + 1)
+            ctx.clearRect(0, 0, canvasElement.width, canvasElement.height)
+            redrawCanvas(canvasStrokes.slice(0, canvasStrokes.length - historyStep))
+        }
+        function redo() {
+            historyStep = Math.max(0, historyStep - 1)
+            ctx.clearRect(0, 0, canvasElement.width, canvasElement.height)
+            redrawCanvas(canvasStrokes.slice(0, canvasStrokes.length - historyStep))
+        }
         container.addEventListener('keydown', e => {
-            if (e.key.toLowerCase() == 'z' && (onMacOS ? e.metaKey : e.ctrlKey)) {
-                historyStep = Math.max(0, Math.min(canvasStrokes.length, historyStep - (+e.shiftKey * 2 - 1)))
-                ctx.clearRect(0, 0, canvasElement.width, canvasElement.height)
-                redrawCanvas(canvasStrokes.slice(0, canvasStrokes.length - historyStep))
-            }
+            // true if only cmd and/or shift are pressed on macos or only ctrl and/or shift on other platforms
+            const ctrlOrCmdOnly = !e.altKey && (onMacOS ? (e.metaKey && !e.ctrlKey) : (e.ctrlKey && !e.metaKey))
+            if (ctrlOrCmdOnly && e.key == 'z' && !e.shiftKey) undo()
+            // for some reason cmd-shift-z returns a lowercase 'z' on my macbook, but ctrl-shift-z returns capital 'Z' elsewhere
+            // why were macbooks invented
+            if (ctrlOrCmdOnly && e.key.toLowerCase() == 'z' && e.shiftKey) redo()
+            if (ctrlOrCmdOnly && e.key == 'y' && !e.shiftKey) { redo(); e.preventDefault() /* opens history on macos */ }
         })
     })
 </script>
