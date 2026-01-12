@@ -175,6 +175,7 @@
         position: fixed;
         translate: -50% -50%;
         pointer-events: none;
+        z-index: 9999;
     }
     .canvas-wrapper {
         width: 100%;
