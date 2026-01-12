@@ -18,7 +18,7 @@
     const brushCursorResizeGestureSensitivity = 1.8 // higher = slower size changing
     let paintColor: [number, number, number] = $state([0, 0, 0]) // rgb
     let resizingBrushWithGesture = $state(false)
-    let brushSize = $state(50)
+    let brushSize = $state(20)
     // idk why but the cursor looks too big for large brush sizes, the .85 mostly fixes it
     // the "... ? 1 : ..." is there so that the fake cursor (which doesn't have the sizing issue) works as normal
     // nvm it just works now, so i set it as 1 : 1 instead of 1 : 0.85
