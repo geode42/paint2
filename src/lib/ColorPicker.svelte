@@ -1,12 +1,12 @@
 <script lang='ts'>
     import { onMount } from 'svelte'
-    import { HSVtoRGB } from './colorConvert'
+    import { HSVtoRGB } from './colorUtils'
 
     let { rgb = $bindable() }: { rgb?: [number, number, number] } = $props()
 
     let satVal: HTMLDivElement, satValPicker: HTMLDivElement, hueBar: HTMLDivElement, huePicker: HTMLDivElement
 
-    let [hue, sat, val] = $state([0, 0, 0])
+    let [hue, sat, val] = $state([0, 1, 1])
 
     $effect(() => {
         rgb = HSVtoRGB(hue, sat, val)

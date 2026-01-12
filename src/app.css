@@ -1,4 +1,13 @@
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
 body {
     margin: 0;
     overflow-y: hidden;
+}
+
+/* Prevent swipe to go back/forward gesture on trackpads */
+html {
+    overscroll-behavior: none;
 }

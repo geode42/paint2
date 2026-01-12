@@ -39,3 +39,7 @@ export function RGBtoHSV(r: number, g: number, b: number): [number, number, numb
 
     return [h!, s, v]
 }
+
+export function rgbToNumber(r: number, g: number, b: number) {
+    return (r << 16) + (g << 8) + b
+}
