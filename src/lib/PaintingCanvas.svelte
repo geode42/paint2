@@ -49,7 +49,7 @@
     }
     
     onMount(() => {
-        function startBrushStroke(x: number, y: number) {
+        function startBrushStroke(x: number, y: number, brushSize: number) {
             // Create initial dot (path strokes don't seem to get rendered until a second point is added)
             ctx.ellipse(x, y, brushSize / 2, brushSize / 2, 0, 0, 2 * Math.PI)
             ctx.fill()
@@ -83,7 +83,7 @@
                 ctx.lineWidth = stroke.styling.brushSize
                 ctx.lineCap = 'round'
 
-                startBrushStroke(stroke.points[0], stroke.points[1])
+                startBrushStroke(stroke.points[0], stroke.points[1], stroke.styling.brushSize)
                 for (let i = 2; i < stroke.points.length; i += 2) {
                     continueBrushStroke(stroke.points[i], stroke.points[i + 1])
                 }
@@ -129,7 +129,7 @@
             ctx.lineWidth = brushSize
             ctx.lineCap = 'round'
 
-            startBrushStroke(...pagePosToCanvasPos(e.pageX, e.pageY, devicePixelRatio))
+            startBrushStroke(...pagePosToCanvasPos(e.pageX, e.pageY, devicePixelRatio), brushSize)
             resetHistoryToCurrentStep() // new action taken, so delete future history and set current history step to latest
             currentStrokePoints.push(...pagePosToCanvasPos(e.pageX, e.pageY, devicePixelRatio))
         })
