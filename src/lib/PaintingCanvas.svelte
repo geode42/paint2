@@ -11,6 +11,8 @@
         },
     }
 
+    const onMacOS = navigator.userAgent.includes('Mac')
+
     const canvasStrokes: CanvasStrokeInfo[] = []
     let historyStep = 0 // 0 = current, 1 = one back, 2 = two back, etc.
 
@@ -152,7 +154,7 @@
             currentStrokePoints.length = 0
         })
         container.addEventListener('keydown', e => {
-            if (e.key.toLowerCase() == 'z' && e.ctrlKey) {
+            if (e.key.toLowerCase() == 'z' && (onMacOS ? e.metaKey : e.ctrlKey)) {
                 historyStep = Math.max(0, Math.min(canvasStrokes.length, historyStep - (+e.shiftKey * 2 - 1)))
                 ctx.clearRect(0, 0, canvasElement.width, canvasElement.height)
                 redrawCanvas(canvasStrokes.slice(0, canvasStrokes.length - historyStep))
