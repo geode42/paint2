@@ -101,6 +101,12 @@
             fakeCursor.style.top = `${e.clientY}px`
         })
 
+        canvasElement.addEventListener('contextmenu', e => {
+            // prevent control-click on macos, which messes with the resizing gesture
+            // this would theoretically be an issue regardless of platform so checking for macos seems superfluous
+            if (e.button == 0 && e.ctrlKey) e.preventDefault()
+        })
+
         canvasElement.addEventListener('pointerdown', e => {
             if (e.button == 0 && e.ctrlKey && e.altKey) {
                 // pointer lock can't be used for this b/c it shows a popup everytime
