@@ -10,6 +10,7 @@ Alternatively-alternatively, hold <kbd>ctrl/cmd</kbd> and scroll to zoom in/out
 Use <kbd>ctrl/cmd</kbd>-<kbd>z</kbd> / <kbd>ctrl/cmd</kbd>+<kbd>shift</kbd>-<kbd>z</kbd> / <kbd>ctrl/cmd</kbd>-<kbd>y</kbd> to undo/redo  
 Hold <kbd>space</kbd> to temporarily get the hand tool  
 Use <kbd>v</kbd>, <kbd>h</kbd>, and <kbd>b</kbd> to switch to the selection, hand, and brush tools respectively  
+While using the selection tool, press <kbd>backspace</kbd> or <kbd>delete</kbd> to delete things you have selected, and hold <kbd>shift</kbd> while dragging to add things to your selection  
 Scroll to move around, use pinch-to-zoom on your trackpad if your device supports it  
 There's a custom color picker on the bottom left  
 That's about it :)

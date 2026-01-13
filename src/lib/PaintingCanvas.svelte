@@ -6,18 +6,12 @@
     import matSymArrowSelectorTool from '../assets/material-symbols-icons/arrow_selector_tool_20dp_CURRENTCOLOR_FILL0_wght400_GRAD0_opsz20.svg?raw'
     import matSymPanTool from '../assets/material-symbols-icons/pan_tool_20dp_CURRENTCOLOR_FILL0_wght400_GRAD0_opsz20.svg?raw'
     import matSymBrush from '../assets/material-symbols-icons/brush_20dp_CURRENTCOLOR_FILL0_wght400_GRAD0_opsz20.svg?raw'
+    import type { Point, Rect, BrushStroke, CanvasElement } from "./canvasTypes";
+    import { boundingBoxFromPoints, expandRect, rectContainsRect } from "./canvasUtils";
+    import * as HistoryTypes from './historyTypes'
 
     export function focus() {
         container.focus()
-    }
-
-    type PaintStroke = {
-        // floats are used b/c points can have decimals on hiDPI displays and removing them is quite noticeable
-        points: Float32Array,
-        styling: {
-            brushSize: number,
-            color: number,
-        },
     }
 
     // Config / const consts
@@ -39,11 +33,17 @@
     // Elements
     let container: HTMLDivElement
     let canvas: HTMLCanvasElement
+    let uiCanvas: HTMLCanvasElement
     let fakeCursor: HTMLDivElement
 
     type Tool = 'selection' | 'hand' | 'brush'
 
     let activeTool: Tool = $state('brush' as any)
+    let redrawUIOuter: () => any
+    $effect(() => {
+        activeTool
+        redrawUIOuter && redrawUIOuter()
+    })
 
     // These directly scale, then translate the document
     // if scale == 1, then one CSS pixel corresponds to 1 document unit
@@ -52,7 +52,13 @@
     let documentScale = $state(1)
     let documentTranslation: [number, number] = $state([0, 0])
 
-    const paintStrokes: PaintStroke[] = []
+    const elements: CanvasElement[] = []
+    /** Remember to call `makeCurrentHistoryStepLatest()` before adding to this! */
+    const historyActions: HistoryTypes.Action[] = []
+    // selectedelements is a separate array rather than a property for a couple reasons, main being that
+    // this way `elements` contains only what you need to store them as json without further processing
+    // this also makes this more modular/extensible if you wanted to do multiplayer stuff or smth
+    const selectedElements: CanvasElement[] = []
     let historyStep = 0 // 0 = current, 1 = one back, 2 = two back, etc.
     let strokeWidth = $state(20)
     let strokeColor: [number, number, number] = $state([255, 0, 0]) // rgb
@@ -83,6 +89,11 @@
     // when holding ctrl/cmd or alt and having the hand tool active, you can click to zoom in/out, the cursor should reflect that
     let handZoomCursorType: 'zoom-in' | 'zoom-out' | 'none' = $state('none')
 
+    const rectSelectionState = {
+        selecting: false,
+        rect: { x1: NaN, y1: NaN, x2: NaN, y2: NaN } as Rect,
+    }
+
     const pagePosToCanvasPos = (x: number, y: number, ctxScale: number): [number, number] => {
         const canvasRect = canvas.getBoundingClientRect()
         return [
@@ -92,13 +103,55 @@
     }
     
     onMount(() => {
+        /** note: doesn't change history */
+        function removeElements(...elementsToRemove: CanvasElement[]) {
+            for (const element of elementsToRemove) {
+                const elementIndex = elements.indexOf(element)
+                if (elementIndex == -1) {
+                    console.error(`failed to remove element: ${element}`)
+                    continue
+                }
+                elements.splice(elementIndex, 1)
+            }
+        }
         function undo() {
-            historyStep = Math.min(paintStrokes.length, historyStep + 1)
-            redrawCanvas()
+            if (historyStep == historyActions.length) return
+            historyStep = historyStep + 1
+            const historyAction = historyActions.at(-historyStep)!
+            if (historyAction.kind == 'create-elements') {
+                const createElementsAction = historyAction as HistoryTypes.CreateElementsAction
+                removeElements(...createElementsAction.elements)
+            }
+            if (historyAction.kind == 'delete-elements') {
+                const deleteElementsAction = historyAction as HistoryTypes.DeleteElementsAction
+                elements.push(...deleteElementsAction.elements)
+            }
+            // selection-change actions have an empty body, so nothing special needs to be done
+
+            // Select elements selected before the undone step
+            if (historyStep == historyActions.length) selectedElements.length = 0
+            else selectedElements.splice(0, selectedElements.length, ...historyActions.at(-historyStep - 1)!.selectionAfterAction)
+            redrawCanvasAndUI()
         }
         function redo() {
-            historyStep = Math.max(0, historyStep - 1)
-            redrawCanvas()
+            if (historyStep == 0) return
+            const historyAction = historyActions.at(-historyStep)!
+            if (historyAction.kind == 'create-elements') {
+                const createElementAction = historyAction as HistoryTypes.CreateElementsAction
+                elements.push(...createElementAction.elements)
+            }
+            if (historyAction.kind == 'delete-elements') {
+                const deleteElementsAction = historyAction as HistoryTypes.DeleteElementsAction
+                removeElements(...deleteElementsAction.elements)
+            }
+            // selection-change actions have an empty body, so nothing special needs to be done
+
+            // Select elements selected at the redone step
+            selectedElements.splice(0, selectedElements.length, ...historyActions.at(-historyStep)!.selectionAfterAction)
+
+            historyStep = historyStep - 1
+
+            redrawCanvasAndUI()
         }
 
         function canvasPosToWorldPos(x: number, y: number): [number, number] {
@@ -140,13 +193,17 @@
         }
         /** Deletes future history and sets current history step to 0 */
         function makeCurrentHistoryStepLatest() {
-            paintStrokes.splice(paintStrokes.length - historyStep, historyStep)
+            historyActions.splice(historyActions.length - historyStep, historyStep)
             historyStep = 0
         }
         function syncCanvasSize() {
             canvas.width = container.offsetWidth * devicePixelRatio
             canvas.height = container.offsetHeight * devicePixelRatio
             ctx.scale(devicePixelRatio, devicePixelRatio)
+
+            uiCanvas.width = container.offsetWidth * devicePixelRatio
+            uiCanvas.height = container.offsetHeight * devicePixelRatio
+            uiCtx.scale(devicePixelRatio, devicePixelRatio)
         }
         function setCtxStylingForPainting(strokeColor: string, strokeWidth: number) {
             ctx.strokeStyle = strokeColor
@@ -154,24 +211,31 @@
             ctx.lineWidth = strokeWidth * documentScale
             ctx.lineCap = 'round'
         }
-        function drawStrokesOnCanvas(canvasStrokes: PaintStroke[]) {
-            for (const stroke of canvasStrokes) {
-                setCtxStylingForPainting(`#${stroke.styling.color.toString(16).padStart(6, '0')}`, stroke.styling.brushSize)
-                startBrushStroke(stroke.points[0], stroke.points[1], stroke.styling.brushSize)
-                for (let i = 2; i < stroke.points.length; i += 2) {
-                    continueBrushStroke(stroke.points[i], stroke.points[i + 1])
+        function drawElements(elements: CanvasElement[]) {
+            for (const element of elements) {
+                if (element.kind == 'brush-stroke') {
+                    const brushStroke = element as BrushStroke
+                    setCtxStylingForPainting(`#${brushStroke.style.strokeColor.toString(16).padStart(6, '0')}`, brushStroke.style.strokeWidth)
+                    startBrushStroke(...brushStroke.points[0], brushStroke.style.strokeWidth)
+                    for (let i = 1; i < brushStroke.points.length; i += 1) {
+                        continueBrushStroke(...brushStroke.points[i])
+                    }
                 }
             }
         }
-        function redrawCanvas(options?: { clear?: boolean }) {
-            ;(options?.clear != false) && ctx.clearRect(0, 0, canvas.width, canvas.height)
-            drawStrokesOnCanvas(paintStrokes.slice(0, paintStrokes.length - historyStep))
+        function redrawCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height)
+            drawElements(elements)
+        }
+
+        function redrawCanvasAndUI() {
+            redrawCanvas()
+            redrawUI()
         }
         
         new ResizeObserver(() => {
             syncCanvasSize()
-            redrawCanvas({ clear: false })
-            drawStrokesOnCanvas(paintStrokes.slice(0, paintStrokes.length - historyStep))
+            redrawCanvasAndUI()
         }).observe(container)
 
         function zoomIntoPagePos(x: number, y: number, newZoom: number) {
@@ -195,8 +259,40 @@
         }
 
         const ctx = canvas.getContext('2d')!
+        const uiCtx = uiCanvas.getContext('2d')!
 
-        const currentStrokePoints: number[] = []
+        let currentStrokePoints: [number, number][] = []
+
+        function redrawUI() {
+            uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height)
+            if (rectSelectionState.selecting) {
+                uiCtx.fillStyle = '#00F1'
+                uiCtx.strokeStyle = '#00F'
+                uiCtx.lineWidth = 1
+                uiCtx.beginPath()
+                uiCtx.rect(
+                    ...worldPosToCanvasPos(rectSelectionState.rect.x1, rectSelectionState.rect.y1),
+                    (rectSelectionState.rect.x2 - rectSelectionState.rect.x1) * documentScale,
+                    (rectSelectionState.rect.y2 - rectSelectionState.rect.y1) * documentScale,
+                )
+                uiCtx.fill()
+                uiCtx.stroke()
+            }
+            if (activeTool == 'selection') {
+                for (const element of selectedElements) {
+                    uiCtx.strokeStyle = '#00F'
+                    uiCtx.lineWidth = 1
+                    uiCtx.beginPath()
+                    uiCtx.rect(
+                        ...worldPosToCanvasPos(element.boundingBox.x1, element.boundingBox.y1),
+                        (element.boundingBox.x2 - element.boundingBox.x1) * documentScale,
+                        (element.boundingBox.y2 - element.boundingBox.y1) * documentScale,
+                    )
+                    uiCtx.stroke()
+                }
+            }
+        }
+        redrawUIOuter = redrawUI
 
         addEventListener('pointermove', e => {
             if (resizingBrushWithGesture) return
@@ -225,13 +321,13 @@
             const isGesture = Math.abs(e.deltaX) < zoomGestureMaxDelta && Math.abs(e.deltaY) < zoomGestureMaxDelta
             if (e.ctrlKey || e.metaKey) {
                 zoomIntoPagePos(e.pageX, e.pageY, documentScale * (isGesture ? ctrlWheelZoomSpeedGesture : ctrlWheelZoomSpeed) ** -e.deltaY)
-                redrawCanvas()
+                redrawCanvasAndUI()
                 e.preventDefault()
                 return
             }
             documentTranslation[+e.shiftKey] -= e.deltaX * (isGesture ? scrollSpeedGesture : scrollSpeed)
             documentTranslation[1 - +e.shiftKey] -= e.deltaY * (isGesture ? scrollSpeedGesture : scrollSpeed)
-            redrawCanvas()
+            redrawCanvasAndUI()
         })
 
         canvas.addEventListener('pointerdown', e => {
@@ -252,6 +348,20 @@
                 panning = true
                 return
             }
+            if (activeTool == 'selection' && e.buttons == 1) {
+                rectSelectionState.selecting = true
+                if (!e.shiftKey) selectedElements.length = 0
+                const worldPos = canvasPosToWorldPos(...pagePosToCanvasPos(e.clientX, e.clientY, devicePixelRatio))
+                rectSelectionState.rect = {
+                    x1: worldPos[0],
+                    y1: worldPos[1],
+                    x2: worldPos[0],
+                    y2: worldPos[1],
+                }
+                canvas.setPointerCapture(e.pointerId)
+                redrawUI()
+                return
+            }
             if (activeTool == 'brush' && e.buttons == 1 && e.ctrlKey && e.altKey) {
                 // pointer lock can't be used for this b/c it shows a popup everytime
                 // which ig is good but still it's such sadness
@@ -270,8 +380,7 @@
     
                 const worldPos = canvasPosToWorldPos(...pagePosToCanvasPos(e.pageX, e.pageY, devicePixelRatio))
                 startBrushStroke(...worldPos, strokeWidth)
-                makeCurrentHistoryStepLatest() // new action taken, so delete future history and set current history step to latest
-                currentStrokePoints.push(...worldPos)
+                currentStrokePoints.push(worldPos)
                 return
             }
         })
@@ -281,7 +390,7 @@
                 documentScale = zoomGestureStartScale
                 documentTranslation = zoomGestureStartTranslation
                 zoomIntoPagePos(...zoomGestureStartPointerPos, zoomGestureStartScale + (e.clientX - zoomGestureStartPointerPos[0]) * zoomGestureSensitivity)
-                redrawCanvas()
+                redrawCanvasAndUI()
                 return
             }
             if (panning && canvas.hasPointerCapture(e.pointerId)) {
@@ -289,7 +398,14 @@
                     documentPanTranslationStart[0] + (e.clientX - documentPanPointerStart[0]),
                     documentPanTranslationStart[1] + (e.clientY - documentPanPointerStart[1]),
                 ]
-                redrawCanvas()
+                redrawCanvasAndUI()
+                return
+            }
+            if (rectSelectionState.selecting) {
+                const worldPos = canvasPosToWorldPos(...pagePosToCanvasPos(e.clientX, e.clientY, devicePixelRatio))
+                rectSelectionState.rect.x2 = worldPos[0]
+                rectSelectionState.rect.y2 = worldPos[1]
+                redrawUI()
                 return
             }
             if (resizingBrushWithGesture) {
@@ -299,7 +415,7 @@
             if (activeTool == 'brush' && canvas.hasPointerCapture(e.pointerId)) {
                 const worldPos = canvasPosToWorldPos(...pagePosToCanvasPos(e.pageX, e.pageY, devicePixelRatio))
                 continueBrushStroke(...worldPos)
-                currentStrokePoints.push(...worldPos)
+                currentStrokePoints.push(worldPos)
                 return
             }
         })
@@ -309,7 +425,7 @@
                 zoomGestureActive = false
                 if (e.clientX == zoomGestureStartPointerPos[0] && e.clientY == zoomGestureStartPointerPos[1]) {
                     zoomIntoPagePos(e.pageX, e.pageY, documentScale / handClickZoomAmount ** (+e.altKey * 2 - 1))
-                    redrawCanvas()
+                    redrawCanvasAndUI()
                 }
                 return
             }
@@ -317,13 +433,50 @@
                 panning = false
                 return
             }
+            if (rectSelectionState.selecting) {
+                rectSelectionState.selecting = false
+                for (const element of elements) {
+                    if (rectContainsRect(rectSelectionState.rect, element.boundingBox) && !selectedElements.includes(element)) {
+                        selectedElements.push(element)
+                    }
+                }
+                const historyAction: HistoryTypes.SelectionChangeAction = {
+                    kind: 'selection-change',
+                    timestamp: Date.now(),
+                    selectionAfterAction: [...selectedElements],
+                }
+                makeCurrentHistoryStepLatest()
+                historyActions.push(historyAction)
+                redrawUI()
+                return
+            }
             if (resizingBrushWithGesture) {
                 resizingBrushWithGesture = false
                 return
             }
             if (activeTool == 'brush' && canvas.hasPointerCapture(e.pointerId)) {
-                paintStrokes.push({ points: new Float32Array(currentStrokePoints), styling: { brushSize: strokeWidth, color: rgbToNumber(...strokeColor) } })
-                currentStrokePoints.length = 0
+                const brushStrokeElement: BrushStroke = {
+                    kind: 'brush-stroke',
+                    boundingBox: expandRect(boundingBoxFromPoints(currentStrokePoints), strokeWidth / 2),
+                    points: currentStrokePoints,
+                    style: {
+                        strokeWidth,
+                        strokeColor: rgbToNumber(...strokeColor),
+                        // TODO
+                        fillColor: NaN,
+                        stripeWidths: [NaN, NaN],
+                    }
+                }
+                const historyAction: HistoryTypes.CreateElementsAction = {
+                    kind: 'create-elements',
+                    timestamp: Date.now(),
+                    selectionAfterAction: [brushStrokeElement],
+                    elements: [brushStrokeElement],
+                }
+                elements.push(brushStrokeElement)
+                makeCurrentHistoryStepLatest()
+                historyActions.push(historyAction)
+                currentStrokePoints = []
                 return
             }
         })
@@ -340,6 +493,20 @@
             if (e.key.toLowerCase() == 'v' && noNonShiftModifierKeys) activeTool = 'selection'
             if (e.key.toLowerCase() == 'h' && noNonShiftModifierKeys) activeTool = 'hand'
             if (e.key.toLowerCase() == 'b' && noNonShiftModifierKeys) activeTool = 'brush'
+
+            if (activeTool == 'selection' && (e.key == 'Delete' || e.key == 'Backspace')) {
+                removeElements(...selectedElements)
+                const historyAction: HistoryTypes.DeleteElementsAction = {
+                    kind: 'delete-elements',
+                    timestamp: Date.now(),
+                    selectionAfterAction: [],
+                    elements: [...selectedElements],
+                }
+                makeCurrentHistoryStepLatest()
+                historyActions.push(historyAction)
+                selectedElements.length = 0
+                redrawCanvasAndUI()
+            }
 
             updateHandZoomCursorType(e)
         })
@@ -381,6 +548,7 @@
         <canvas bind:this={canvas}></canvas>
         <div class='fake-cursor' hidden={!fakeBrushCursorVisible} bind:this={fakeCursor}>{@html brushCursorSvg}</div>
     </div>
+    <canvas class="ui-canvas" bind:this={uiCanvas}></canvas>
     <div class='color-picker-wrapper'><ColorPicker bind:rgb={strokeColor} /></div>
     <div class="toolbar">
         {#each toolbarButtonInfos as i}
@@ -473,6 +641,12 @@
 
     canvas {
         user-select: none;
+    }
+
+    .ui-canvas {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
     }
 
     .color-picker-wrapper {
