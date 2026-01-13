@@ -22,6 +22,7 @@
 
     // Config / const consts
     const minScale = 0.01
+    const maxStrokeWidth = 100 // capped to reduce lag
     const maxRealCursorSize = 128 // Capped by browsers
     const brushCursorResizeGestureSensitivity = 0.6 // higher = faster size changing
     const zoomGestureSensitivity = 0.1 // higher = faster zooming
@@ -64,12 +65,12 @@
     let spaceBarHandActive = $state(false)
 
     // Brush cursor svg vars
-    let brushCursorSvgSize = $derived(Math.round(strokeWidth / 2) * 2) // rounding prevents alignment issues with the native cursor
+    let brushCursorSvgSize = $derived(Math.round(strokeWidth * documentScale / 2) * 2) // rounding prevents alignment issues with the native cursor
     let brushCursorSvgStrokeColor = '#AAA'
     let brushCursorSvg = $derived(`<svg width="${brushCursorSvgSize}" height="${brushCursorSvgSize}" xmlns="http://www.w3.org/2000/svg"><circle cx="${brushCursorSvgSize / 2}" cy="${brushCursorSvgSize / 2}" r="${brushCursorSvgSize / 2 - brushCursorSvgStrokeWidth}" fill="#0000" stroke-width="${brushCursorSvgStrokeWidth}" stroke="${brushCursorSvgStrokeColor}" /></svg>`)
     let brushCursorDataUrl = $derived(`data:image/svg+xml;base64,${encodeURIComponent(btoa(brushCursorSvg))}`)
     let brushCursorStyle = $derived(`url("${brushCursorDataUrl}") ${brushCursorSvgSize / 2} ${brushCursorSvgSize / 2}, default`)
-    let fakeBrushCursorVisible = $derived(activeTool == 'brush' && !spaceBarHandActive && (resizingBrushWithGesture || strokeWidth > maxRealCursorSize))
+    let fakeBrushCursorVisible = $derived(activeTool == 'brush' && !spaceBarHandActive && (resizingBrushWithGesture || brushCursorSvgSize > maxRealCursorSize))
 
     // TODO: convert these to object
     // Hand tool dragging vars
@@ -265,10 +266,10 @@
             }
             if (activeTool == 'brush' && e.buttons == 1) {
                 canvas.setPointerCapture(e.pointerId)
-                setCtxStylingForPainting(`rgb(${strokeColor.join(' ')})`, strokeWidth / documentScale)
+                setCtxStylingForPainting(`rgb(${strokeColor.join(' ')})`, strokeWidth)
     
                 const worldPos = canvasPosToWorldPos(...pagePosToCanvasPos(e.pageX, e.pageY, devicePixelRatio))
-                startBrushStroke(...worldPos, strokeWidth / documentScale)
+                startBrushStroke(...worldPos, strokeWidth)
                 makeCurrentHistoryStepLatest() // new action taken, so delete future history and set current history step to latest
                 currentStrokePoints.push(...worldPos)
                 return
@@ -292,7 +293,7 @@
                 return
             }
             if (resizingBrushWithGesture) {
-                strokeWidth = Math.max(0, brushCursorResizeGestureStartBrushSize + (e.pageX - brushCursorResizeGestureStartPageX) * brushCursorResizeGestureSensitivity)
+                strokeWidth = Math.max(0, Math.min(maxStrokeWidth, brushCursorResizeGestureStartBrushSize + (e.pageX - brushCursorResizeGestureStartPageX) * brushCursorResizeGestureSensitivity))
                 return
             }
             if (activeTool == 'brush' && canvas.hasPointerCapture(e.pointerId)) {
@@ -321,7 +322,7 @@
                 return
             }
             if (activeTool == 'brush' && canvas.hasPointerCapture(e.pointerId)) {
-                paintStrokes.push({ points: new Float32Array(currentStrokePoints), styling: { brushSize: strokeWidth / documentScale, color: rgbToNumber(...strokeColor) } })
+                paintStrokes.push({ points: new Float32Array(currentStrokePoints), styling: { brushSize: strokeWidth, color: rgbToNumber(...strokeColor) } })
                 currentStrokePoints.length = 0
                 return
             }
