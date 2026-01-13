@@ -30,3 +30,12 @@ export function rectContainsPoint(rect: Rect, point: Point) {
 export function rectContainsRect(bigRect: Rect, smallRect: Rect) {
     return rectContainsPoint(bigRect, [smallRect.x1, smallRect.y1]) && rectContainsPoint(bigRect, [smallRect.x2, smallRect.y2])
 }
+
+/** Returns true if arrays are the same length and every element present in `array1` is present in `array2` */
+export function arraysContainSameElements(array1: any[], array2: any[]) {
+    if (array1.length != array2.length) return false
+    for (const element of array1) {
+        if (!array2.includes(element)) return false
+    }
+    return true
+}

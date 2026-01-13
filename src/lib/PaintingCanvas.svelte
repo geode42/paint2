@@ -7,7 +7,7 @@
     import matSymPanTool from '../assets/material-symbols-icons/pan_tool_20dp_CURRENTCOLOR_FILL0_wght400_GRAD0_opsz20.svg?raw'
     import matSymBrush from '../assets/material-symbols-icons/brush_20dp_CURRENTCOLOR_FILL0_wght400_GRAD0_opsz20.svg?raw'
     import type { Point, Rect, BrushStroke, CanvasElement } from "./canvasTypes";
-    import { boundingBoxFromPoints, expandRect, rectContainsRect } from "./canvasUtils";
+    import { arraysContainSameElements, boundingBoxFromPoints, expandRect, rectContainsRect } from "./canvasUtils";
     import * as HistoryTypes from './historyTypes'
 
     export function focus() {
@@ -92,6 +92,7 @@
     const rectSelectionState = {
         selecting: false,
         rect: { x1: NaN, y1: NaN, x2: NaN, y2: NaN } as Rect,
+        previousSelection: [] as CanvasElement[],
     }
 
     const pagePosToCanvasPos = (x: number, y: number, ctxScale: number): [number, number] => {
@@ -350,6 +351,7 @@
             }
             if (activeTool == 'selection' && e.buttons == 1) {
                 rectSelectionState.selecting = true
+                rectSelectionState.previousSelection = [...selectedElements]
                 if (!e.shiftKey) selectedElements.length = 0
                 const worldPos = canvasPosToWorldPos(...pagePosToCanvasPos(e.clientX, e.clientY, devicePixelRatio))
                 rectSelectionState.rect = {
@@ -445,8 +447,12 @@
                     timestamp: Date.now(),
                     selectionAfterAction: [...selectedElements],
                 }
+                // if the new selection is identical to the old selection, still reset history since an action
+                // was taken, but don't add it as a new history action since that'd be redundant for the user
                 makeCurrentHistoryStepLatest()
-                historyActions.push(historyAction)
+                if (!arraysContainSameElements(selectedElements, rectSelectionState.previousSelection)) {
+                    historyActions.push(historyAction)
+                }
                 redrawUI()
                 return
             }
